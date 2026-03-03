@@ -39,6 +39,7 @@ services:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - certbot_certs:/etc/letsencrypt:ro
       - certbot_www:/var/www/certbot
+      - ./files:/data/files:ro
     depends_on:
       - launcher
     networks:
@@ -116,6 +117,11 @@ server {
 
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_prefer_server_ciphers off;
+
+    location /files/ {
+        alias /data/files/;
+        add_header Cache-Control "no-cache";
+    }
 
     location / {
         proxy_pass         http://launcher:8080;

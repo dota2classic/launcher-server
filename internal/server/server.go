@@ -1,11 +1,11 @@
 package server
 
 import (
+	"compress/gzip"
 	"crypto/tls"
 	"encoding/json"
 	"log"
 	"net/http"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -16,7 +16,6 @@ import (
 type Server struct {
 	basePath        string
 	currentManifest *manifest.Manifest
-	fileIndex       map[string]*manifest.HashedFile
 	mu              sync.RWMutex
 }
 
@@ -45,13 +44,7 @@ func (s *Server) recalculateManifest() error {
 		return err
 	}
 
-	index := make(map[string]*manifest.HashedFile, len(m.Files))
-	for _, f := range m.Files {
-		index[f.FilePath] = f
-	}
-
 	s.currentManifest = m
-	s.fileIndex = index
 	log.Printf("Recalculated manifest: %d files", len(m.Files))
 	return nil
 }
@@ -67,7 +60,14 @@ func (s *Server) handleManifest(w http.ResponseWriter, r *http.Request) {
 	defer s.mu.RUnlock()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.currentManifest)
+	if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+		w.Header().Set("Content-Encoding", "gzip")
+		gz := gzip.NewWriter(w)
+		defer gz.Close()
+		json.NewEncoder(gz).Encode(s.currentManifest)
+	} else {
+		json.NewEncoder(w).Encode(s.currentManifest)
+	}
 }
 
 // POST /manifest/recalculate - triggers manifest recalculation
@@ -92,59 +92,11 @@ func (s *Server) handleRecalculate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GET /files/{path} - serves files
-func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Strip /files/ prefix
-	relativePath := r.URL.Path[len("/files/"):]
-	if relativePath == "" {
-		http.Error(w, "File path required", http.StatusBadRequest)
-		return
-	}
-
-	// Prevent directory traversal
-	cleanPath := filepath.Clean(relativePath)
-	if filepath.IsAbs(cleanPath) || strings.HasPrefix(cleanPath, "..") {
-		http.Error(w, "Invalid path", http.StatusBadRequest)
-		return
-	}
-
-	fullPath := filepath.Join(s.basePath, cleanPath)
-
-	// Verify file is within basePath
-	if !isSubPath(s.basePath, fullPath) {
-		http.Error(w, "Invalid path", http.StatusBadRequest)
-		return
-	}
-
-	s.mu.RLock()
-	hf := s.fileIndex[filepath.ToSlash(cleanPath)]
-	s.mu.RUnlock()
-
-	if hf != nil {
-		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-	}
-
-	http.ServeFile(w, r, fullPath)
-}
-
-func isSubPath(basePath, targetPath string) bool {
-	rel, err := filepath.Rel(basePath, targetPath)
-	if err != nil {
-		return false
-	}
-	return rel != ".." && !filepath.IsAbs(rel) && (len(rel) < 2 || rel[:2] != "..")
-}
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/manifest", s.handleManifest)
 	mux.HandleFunc("/manifest/recalculate", s.handleRecalculate)
-	mux.HandleFunc("/files/", s.handleFiles)
 	return mux
 }
 
@@ -162,7 +114,6 @@ func (s *Server) logRoutes(addr, scheme string) {
 	log.Printf("Server starting on %s://%s", scheme, addr)
 	log.Printf("  GET  /manifest             - get current manifest")
 	log.Printf("  POST /manifest/recalculate - recalculate manifest")
-	log.Printf("  GET  /files/{path}         - download file")
 }
 
 func (s *Server) ListenAndServe(addr string) error {

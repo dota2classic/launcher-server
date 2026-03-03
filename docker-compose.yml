@@ -20,6 +20,7 @@ services:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - certbot_certs:/etc/letsencrypt:ro
       - certbot_www:/var/www/certbot
+      - ./files:/data/files:ro
     depends_on:
       - launcher
     networks:
