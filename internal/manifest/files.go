@@ -14,7 +14,7 @@ type HashedFile struct {
 	FilePath string   `json:"path"`
 	Hash     string   `json:"hash"`
 	FileSize int64    `json:"size"`
-	Mode     FileMode `json:"mode,omitempty"` // empty = required, "soft" = download only if missing
+	Mode     FileMode `json:"mode"` // "exact" = must match hash, "existing" = must exist, hash may differ
 }
 
 type Manifest struct {
@@ -40,6 +40,7 @@ func HashFile(fullPath, relativePath string) (*HashedFile, error) {
 		FilePath: relativePath,
 		Hash:     hex.EncodeToString(h.Sum(nil)),
 		FileSize: size,
+		Mode:     ModeExact,
 	}, nil
 }
 
@@ -102,9 +103,9 @@ func CreateManifest(basePath string) (*Manifest, error) {
 			return err
 		}
 
-		// Mark soft files
+		// Mark existing files
 		if matched && isSoft {
-			hf.Mode = ModeSoft
+			hf.Mode = ModeExisting
 		}
 
 		files = append(files, hf)

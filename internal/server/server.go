@@ -32,6 +32,10 @@ func New(basePath string) (*Server, error) {
 	return s, nil
 }
 
+func (s *Server) Recalculate() error {
+	return s.recalculateManifest()
+}
+
 func (s *Server) recalculateManifest() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

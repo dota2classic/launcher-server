@@ -10,9 +10,8 @@ import (
 type FileMode string
 
 const (
-	ModeRequired FileMode = ""     // Default: must always match
-	ModeSoft     FileMode = "soft" // Download only if local file doesn't exist
-	ModeIgnored  FileMode = ""     // Internal: file is excluded from manifest
+	ModeExact    FileMode = "exact"    // File must match exactly (same hash)
+	ModeExisting FileMode = "existing" // File must exist, but hash may differ; downloaded if missing
 )
 
 const ManifestIgnoreFile = ".manifestignore"

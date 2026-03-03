@@ -178,17 +178,17 @@ temp/
 		t.Error("temp/cache.bin should NOT be in manifest")
 	}
 
-	// Check soft files are present with correct mode
+	// Check existing files are present with correct mode
 	if f, ok := manifestFiles["config.json"]; !ok {
 		t.Error("config.json should be in manifest")
-	} else if f.Mode != ModeSoft {
-		t.Errorf("config.json mode = %q, want %q", f.Mode, ModeSoft)
+	} else if f.Mode != ModeExisting {
+		t.Errorf("config.json mode = %q, want %q", f.Mode, ModeExisting)
 	}
 
 	if f, ok := manifestFiles["settings/video.ini"]; !ok {
 		t.Error("settings/video.ini should be in manifest")
-	} else if f.Mode != ModeSoft {
-		t.Errorf("settings/video.ini mode = %q, want %q", f.Mode, ModeSoft)
+	} else if f.Mode != ModeExisting {
+		t.Errorf("settings/video.ini mode = %q, want %q", f.Mode, ModeExisting)
 	}
 
 	// Check .manifestignore itself is not in manifest
@@ -196,8 +196,8 @@ temp/
 		t.Error(".manifestignore should NOT be in manifest")
 	}
 
-	// Check required files have empty mode
-	if f := manifestFiles["main.exe"]; f.Mode != ModeRequired {
-		t.Errorf("main.exe mode = %q, want %q", f.Mode, ModeRequired)
+	// Check exact files have correct mode
+	if f := manifestFiles["main.exe"]; f.Mode != ModeExact {
+		t.Errorf("main.exe mode = %q, want %q", f.Mode, ModeExact)
 	}
 }

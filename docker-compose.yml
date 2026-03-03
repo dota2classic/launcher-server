@@ -1,0 +1,45 @@
+services:
+  launcher:
+    image: dota2classic/launcher-server:latest
+    restart: unless-stopped
+    environment:
+      LAUNCHER_FILES_PATH: /data/files
+      LAUNCHER_ADDR: :8080
+    volumes:
+      - ./files:/data/files
+    networks:
+      - internal
+
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - certbot_certs:/etc/letsencrypt:ro
+      - certbot_www:/var/www/certbot
+    depends_on:
+      - launcher
+    networks:
+      - internal
+
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - certbot_certs:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    entrypoint: >
+      /bin/sh -c "trap exit TERM;
+        while :; do
+          certbot renew;
+          sleep 12h & wait $${!};
+        done"
+
+volumes:
+  certbot_certs:
+  certbot_www:
+
+networks:
+  internal:

@@ -3,6 +3,8 @@ package main
 import (
 	"log"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"launcher-host/internal/server"
 )
@@ -25,6 +27,17 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGHUP)
+	go func() {
+		for range sigCh {
+			log.Println("SIGHUP received, recalculating manifest...")
+			if err := srv.Recalculate(); err != nil {
+				log.Printf("Recalculate failed: %v", err)
+			}
+		}
+	}()
 
 	if certFile != "" && keyFile != "" {
 		log.Fatal(srv.ListenAndServeTLS(addr, certFile, keyFile))
