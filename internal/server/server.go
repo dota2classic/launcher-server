@@ -1,12 +1,14 @@
 package server
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"log"
 	"net/http"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"launcher-host/internal/manifest"
 )
@@ -14,6 +16,7 @@ import (
 type Server struct {
 	basePath        string
 	currentManifest *manifest.Manifest
+	fileIndex       map[string]*manifest.HashedFile
 	mu              sync.RWMutex
 }
 
@@ -38,7 +41,13 @@ func (s *Server) recalculateManifest() error {
 		return err
 	}
 
+	index := make(map[string]*manifest.HashedFile, len(m.Files))
+	for _, f := range m.Files {
+		index[f.FilePath] = f
+	}
+
 	s.currentManifest = m
+	s.fileIndex = index
 	log.Printf("Recalculated manifest: %d files", len(m.Files))
 	return nil
 }
@@ -108,6 +117,14 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.mu.RLock()
+	hf := s.fileIndex[filepath.ToSlash(cleanPath)]
+	s.mu.RUnlock()
+
+	if hf != nil {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	}
+
 	http.ServeFile(w, r, fullPath)
 }
 
@@ -127,10 +144,35 @@ func (s *Server) Handler() http.Handler {
 	return mux
 }
 
-func (s *Server) ListenAndServe(addr string) error {
-	log.Printf("Server starting on %s", addr)
+func (s *Server) newHTTPServer(addr string) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           s.Handler(),
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		// No WriteTimeout: file downloads can be large and take time.
+	}
+}
+
+func (s *Server) logRoutes(addr, scheme string) {
+	log.Printf("Server starting on %s://%s", scheme, addr)
 	log.Printf("  GET  /manifest             - get current manifest")
 	log.Printf("  POST /manifest/recalculate - recalculate manifest")
 	log.Printf("  GET  /files/{path}         - download file")
-	return http.ListenAndServe(addr, s.Handler())
+}
+
+func (s *Server) ListenAndServe(addr string) error {
+	s.logRoutes(addr, "http")
+	return s.newHTTPServer(addr).ListenAndServe()
+}
+
+func (s *Server) ListenAndServeTLS(addr, certFile, keyFile string) error {
+	s.logRoutes(addr, "https")
+	srv := s.newHTTPServer(addr)
+	srv.TLSConfig = &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		// NextProtos is set automatically by net/http when HTTP/2 is configured.
+	}
+	// Go's net/http automatically enables HTTP/2 for ListenAndServeTLS.
+	return srv.ListenAndServeTLS(certFile, keyFile)
 }

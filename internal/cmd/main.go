@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"os"
+
 	"launcher-host/internal/server"
 )
 
@@ -17,10 +18,17 @@ func main() {
 		addr = ":8080"
 	}
 
+	certFile := os.Getenv("LAUNCHER_TLS_CERT")
+	keyFile := os.Getenv("LAUNCHER_TLS_KEY")
+
 	srv, err := server.New(basePath)
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}
 
-	log.Fatal(srv.ListenAndServe(addr))
+	if certFile != "" && keyFile != "" {
+		log.Fatal(srv.ListenAndServeTLS(addr, certFile, keyFile))
+	} else {
+		log.Fatal(srv.ListenAndServe(addr))
+	}
 }
