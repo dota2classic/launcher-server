@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"awesomeProject/internal/manifest"
+	"launcher-host/internal/manifest"
 )
 
 type Server struct {

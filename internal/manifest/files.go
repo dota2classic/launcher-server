@@ -11,9 +11,10 @@ import (
 )
 
 type HashedFile struct {
-	FilePath string `json:"path"`
-	Hash     string `json:"hash"`
-	FileSize int64  `json:"size"`
+	FilePath string   `json:"path"`
+	Hash     string   `json:"hash"`
+	FileSize int64    `json:"size"`
+	Mode     FileMode `json:"mode,omitempty"` // empty = required, "soft" = download only if missing
 }
 
 type Manifest struct {
@@ -61,9 +62,15 @@ func hashFileReadAll(fullPath, relativePath string) (*HashedFile, error) {
 }
 
 func CreateManifest(basePath string) (*Manifest, error) {
+	// Parse .manifestignore if it exists
+	ignoreRules, err := ParseIgnoreFile(basePath)
+	if err != nil {
+		return nil, err
+	}
+
 	var files []*HashedFile
 
-	err := filepath.WalkDir(basePath, func(fullPath string, d fs.DirEntry, err error) error {
+	err = filepath.WalkDir(basePath, func(fullPath string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -78,10 +85,28 @@ func CreateManifest(basePath string) (*Manifest, error) {
 		// Normalize to forward slashes for cross-platform compatibility
 		relativePath = filepath.ToSlash(relativePath)
 
+		// Skip the .manifestignore file itself
+		if relativePath == ManifestIgnoreFile {
+			return nil
+		}
+
+		// Check ignore rules
+		matched, isSoft := ignoreRules.Match(relativePath)
+		if matched && !isSoft {
+			// Ignored file - skip entirely
+			return nil
+		}
+
 		hf, err := HashFile(fullPath, relativePath)
 		if err != nil {
 			return err
 		}
+
+		// Mark soft files
+		if matched && isSoft {
+			hf.Mode = ModeSoft
+		}
+
 		files = append(files, hf)
 		return nil
 	})

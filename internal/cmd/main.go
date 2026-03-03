@@ -3,8 +3,7 @@ package main
 import (
 	"log"
 	"os"
-
-	"awesomeProject/internal/server"
+	"launcher-host/internal/server"
 )
 
 func main() {
