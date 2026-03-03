@@ -86,7 +86,7 @@ docker compose up -d nginx
 
 # ── Obtain initial certificate ────────────────────────────────────────────────
 echo "==> Obtaining TLS certificate for $DOMAIN..."
-docker compose run --rm certbot certonly \
+docker compose run --rm --entrypoint certbot certbot certonly \
     --webroot -w /var/www/certbot \
     -d "$DOMAIN" \
     --email "$CERTBOT_EMAIL" \
