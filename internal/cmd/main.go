@@ -1,47 +1,40 @@
 package main
 
 import (
+	"encoding/json"
 	"log"
 	"os"
-	"os/signal"
-	"syscall"
+	"path/filepath"
 
-	"launcher-host/internal/server"
+	"launcher-host/internal/manifest"
 )
 
 func main() {
-	basePath := os.Getenv("LAUNCHER_FILES_PATH")
-	if basePath == "" {
-		log.Fatal("LAUNCHER_FILES_PATH environment variable is not set")
-	}
-
-	addr := os.Getenv("LAUNCHER_ADDR")
-	if addr == "" {
-		addr = ":8080"
-	}
-
-	certFile := os.Getenv("LAUNCHER_TLS_CERT")
-	keyFile := os.Getenv("LAUNCHER_TLS_KEY")
-
-	srv, err := server.New(basePath)
-	if err != nil {
-		log.Fatalf("Failed to create server: %v", err)
-	}
-
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGHUP)
-	go func() {
-		for range sigCh {
-			log.Println("SIGHUP received, recalculating manifest...")
-			if err := srv.Recalculate(); err != nil {
-				log.Printf("Recalculate failed: %v", err)
-			}
-		}
-	}()
-
-	if certFile != "" && keyFile != "" {
-		log.Fatal(srv.ListenAndServeTLS(addr, certFile, keyFile))
+	var filesPath string
+	if len(os.Args) > 1 {
+		filesPath = os.Args[1]
 	} else {
-		log.Fatal(srv.ListenAndServe(addr))
+		filesPath = os.Getenv("LAUNCHER_FILES_PATH")
 	}
+	if filesPath == "" {
+		log.Fatal("usage: launcher-host <files-path>  or set LAUNCHER_FILES_PATH")
+	}
+
+	m, err := manifest.CreateManifest(filesPath)
+	if err != nil {
+		log.Fatalf("Failed to create manifest: %v", err)
+	}
+
+	outPath := filepath.Join(filesPath, manifest.ManifestFile)
+	f, err := os.Create(outPath)
+	if err != nil {
+		log.Fatalf("Failed to create %s: %v", outPath, err)
+	}
+	defer f.Close()
+
+	if err := json.NewEncoder(f).Encode(m); err != nil {
+		log.Fatalf("Failed to write manifest: %v", err)
+	}
+
+	log.Printf("Written manifest with %d files to %s", len(m.Files), outPath)
 }

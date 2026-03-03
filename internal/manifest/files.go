@@ -94,8 +94,8 @@ func CreateManifest(basePath string) (*Manifest, error) {
 		// Normalize to forward slashes for cross-platform compatibility
 		relativePath = filepath.ToSlash(relativePath)
 
-		// Skip the .manifestignore file itself
-		if relativePath == ManifestIgnoreFile {
+		// Skip meta files
+		if relativePath == ManifestIgnoreFile || relativePath == ManifestFile {
 			return nil
 		}
 

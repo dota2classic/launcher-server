@@ -15,6 +15,7 @@ const (
 )
 
 const ManifestIgnoreFile = ".manifestignore"
+const ManifestFile = "manifest.json"
 
 type IgnoreRule struct {
 	Pattern string
