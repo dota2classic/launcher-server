@@ -8,6 +8,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sync"
 )
 
 type HashedFile struct {
@@ -69,8 +71,14 @@ func CreateManifest(basePath string) (*Manifest, error) {
 		return nil, err
 	}
 
-	var files []*HashedFile
+	type fileJob struct {
+		fullPath     string
+		relativePath string
+		mode         FileMode
+	}
 
+	// First pass: collect all files to hash
+	var jobs []fileJob
 	err = filepath.WalkDir(basePath, func(fullPath string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -94,26 +102,58 @@ func CreateManifest(basePath string) (*Manifest, error) {
 		// Check ignore rules
 		matched, isSoft := ignoreRules.Match(relativePath)
 		if matched && !isSoft {
-			// Ignored file - skip entirely
 			return nil
 		}
 
-		hf, err := HashFile(fullPath, relativePath)
-		if err != nil {
-			return err
-		}
-
-		// Mark existing files
+		mode := ModeExact
 		if matched && isSoft {
-			hf.Mode = ModeExisting
+			mode = ModeExisting
 		}
 
-		files = append(files, hf)
+		jobs = append(jobs, fileJob{fullPath, relativePath, mode})
 		return nil
 	})
-
 	if err != nil {
 		return nil, err
+	}
+
+	// Second pass: hash files in parallel
+	type result struct {
+		hf  *HashedFile
+		err error
+	}
+
+	results := make([]result, len(jobs))
+	jobCh := make(chan int, len(jobs))
+	for i := range jobs {
+		jobCh <- i
+	}
+	close(jobCh)
+
+	var wg sync.WaitGroup
+	numWorkers := runtime.NumCPU()
+	for w := 0; w < numWorkers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for idx := range jobCh {
+				job := jobs[idx]
+				hf, err := HashFile(job.fullPath, job.relativePath)
+				if err == nil {
+					hf.Mode = job.mode
+				}
+				results[idx] = result{hf, err}
+			}
+		}()
+	}
+	wg.Wait()
+
+	files := make([]*HashedFile, 0, len(jobs))
+	for _, r := range results {
+		if r.err != nil {
+			return nil, r.err
+		}
+		files = append(files, r.hf)
 	}
 
 	log.Printf("Hashed directory %s. Total files: %d", basePath, len(files))
