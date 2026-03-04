@@ -1,14 +1,11 @@
 services:
   launcher:
     image: dota2classic/launcher-server:latest
-    restart: unless-stopped
+    restart: "no"
     environment:
       LAUNCHER_FILES_PATH: /data/files
-      LAUNCHER_ADDR: :8080
     volumes:
       - ./files:/data/files
-    networks:
-      - internal
 
   nginx:
     image: nginx:alpine
@@ -21,8 +18,6 @@ services:
       - certbot_certs:/etc/letsencrypt:ro
       - certbot_www:/var/www/certbot
       - ./files:/data/files:ro
-    depends_on:
-      - launcher
     networks:
       - internal
 

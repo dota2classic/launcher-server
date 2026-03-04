@@ -6,10 +6,13 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"sync"
+	"sync/atomic"
 )
 
 type HashedFile struct {
@@ -130,6 +133,10 @@ func CreateManifest(basePath string) (*Manifest, error) {
 	}
 	close(jobCh)
 
+	total := len(jobs)
+	var done atomic.Int64
+	logInterval := int(math.Pow10(len(strconv.Itoa(total)) - 1))
+
 	var wg sync.WaitGroup
 	numWorkers := runtime.NumCPU()
 	for w := 0; w < numWorkers; w++ {
@@ -143,6 +150,10 @@ func CreateManifest(basePath string) (*Manifest, error) {
 					hf.Mode = job.mode
 				}
 				results[idx] = result{hf, err}
+				n := int(done.Add(1))
+				if n%logInterval == 0 {
+					log.Printf("Hashing progress: %d/%d files", n, total)
+				}
 			}
 		}()
 	}
