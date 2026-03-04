@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
+# One-time server bootstrap. After this, all updates are: git pull && docker compose up -d
 set -euo pipefail
 
 CERTBOT_EMAIL="admin@dotaclassic.ru"
 DOMAIN="launcher.dotaclassic.ru"
+REPO="https://github.com/dota2classic/launcher-host.git"
 PROJECT_DIR="/opt/launcher"
 
 # ── Docker ────────────────────────────────────────────────────────────────────
@@ -10,63 +12,18 @@ echo "==> Installing Docker..."
 curl -fsSL https://get.docker.com | sh
 systemctl enable --now docker
 
-# ── Project structure ─────────────────────────────────────────────────────────
-echo "==> Creating project structure in $PROJECT_DIR..."
-mkdir -p "$PROJECT_DIR"/{files,nginx/conf.d}
+# ── Clone repo ────────────────────────────────────────────────────────────────
+echo "==> Cloning repo to $PROJECT_DIR..."
+git clone "$REPO" "$PROJECT_DIR"
 cd "$PROJECT_DIR"
 
-# ── docker-compose.yml ────────────────────────────────────────────────────────
-cat > docker-compose.yml <<'EOF'
-services:
-  launcher:
-    image: dota2classic/launcher-server:latest
-    restart: unless-stopped
-    environment:
-      LAUNCHER_FILES_PATH: /data/files
-      LAUNCHER_ADDR: :8080
-    volumes:
-      - ./files:/data/files
-    networks:
-      - internal
+# ── Files directory (not in git) ──────────────────────────────────────────────
+mkdir -p files
 
-  nginx:
-    image: nginx:alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/conf.d:/etc/nginx/conf.d:ro
-      - certbot_certs:/etc/letsencrypt:ro
-      - certbot_www:/var/www/certbot
-      - ./files:/data/files:ro
-    depends_on:
-      - launcher
-    networks:
-      - internal
-
-  certbot:
-    image: certbot/certbot
-    volumes:
-      - certbot_certs:/etc/letsencrypt
-      - certbot_www:/var/www/certbot
-    entrypoint: >
-      /bin/sh -c "trap exit TERM;
-        while :; do
-          certbot renew;
-          sleep 12h & wait $${!};
-        done"
-
-volumes:
-  certbot_certs:
-  certbot_www:
-
-networks:
-  internal:
-EOF
-
-# ── Temporary HTTP-only nginx config (certbot needs port 80 before certs exist)
-cat > nginx/conf.d/launcher.conf <<'EOF'
+# ── Bootstrap: start nginx with HTTP-only config so certbot can run ───────────
+echo "==> Starting nginx (HTTP only for ACME challenge)..."
+mkdir -p nginx/conf.d
+cat > nginx/conf.d/launcher.conf <<'BOOTSTRAP'
 server {
     listen 80;
     server_name launcher.dotaclassic.ru;
@@ -79,13 +36,11 @@ server {
         return 301 https://$host$request_uri;
     }
 }
-EOF
+BOOTSTRAP
 
-# ── Start nginx so certbot can complete the ACME http-01 challenge ─────────────
-echo "==> Starting nginx (HTTP only)..."
 docker compose up -d nginx
 
-# ── Obtain initial certificate ────────────────────────────────────────────────
+# ── Obtain TLS certificate ────────────────────────────────────────────────────
 echo "==> Obtaining TLS certificate for $DOMAIN..."
 docker compose run --rm --entrypoint certbot certbot certonly \
     --webroot -w /var/www/certbot \
@@ -93,67 +48,13 @@ docker compose run --rm --entrypoint certbot certbot certonly \
     --email "$CERTBOT_EMAIL" \
     --agree-tos --no-eff-email
 
-# ── Full nginx config with TLS ────────────────────────────────────────────────
-cat > nginx/conf.d/launcher.conf <<'EOF'
-server {
-    listen 80;
-    server_name launcher.dotaclassic.ru;
-
-    location /.well-known/acme-challenge/ {
-        root /var/www/certbot;
-    }
-
-    location / {
-        return 301 https://$host$request_uri;
-    }
-}
-
-server {
-    listen 443 ssl http2;
-    server_name launcher.dotaclassic.ru;
-
-    ssl_certificate     /etc/letsencrypt/live/launcher.dotaclassic.ru/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/launcher.dotaclassic.ru/privkey.pem;
-
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_prefer_server_ciphers off;
-    ssl_session_cache shared:SSL:10m;
-    ssl_session_timeout 1d;
-
-    sendfile       on;
-    tcp_nopush     on;
-    tcp_nodelay    on;
-
-    location /files/ {
-        alias /data/files/;
-
-        sendfile           on;
-        sendfile_max_chunk 2m;
-        directio           4m;
-        output_buffers     4 512k;
-
-        add_header Cache-Control "public, max-age=3600, must-revalidate";
-        add_header Accept-Ranges bytes;
-        etag on;
-    }
-
-    location / {
-        proxy_pass         http://launcher:8080;
-        proxy_set_header   Host              $host;
-        proxy_set_header   X-Real-IP         $remote_addr;
-        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto $scheme;
-        proxy_read_timeout 300s;
-    }
-}
-EOF
-
-# ── Reload nginx with TLS config, then bring up everything ───────────────────
-echo "==> Reloading nginx with TLS config..."
-docker compose exec nginx nginx -s reload
+# ── Restore real nginx config from repo and start everything ──────────────────
+echo "==> Restoring nginx config from repo..."
+git checkout nginx/conf.d/launcher.conf
 
 echo "==> Starting all services..."
 docker compose up -d
 
 echo ""
 echo "Done. https://$DOMAIN is live."
+echo "Future updates: git pull && docker compose up -d && docker compose exec nginx nginx -s reload"
