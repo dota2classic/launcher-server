@@ -109,7 +109,7 @@ server {
 }
 
 server {
-    listen 443 ssl;
+    listen 443 ssl http2;
     server_name launcher.dotaclassic.ru;
 
     ssl_certificate     /etc/letsencrypt/live/launcher.dotaclassic.ru/fullchain.pem;
@@ -117,10 +117,24 @@ server {
 
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    sendfile       on;
+    tcp_nopush     on;
+    tcp_nodelay    on;
 
     location /files/ {
         alias /data/files/;
-        add_header Cache-Control "no-cache";
+
+        sendfile           on;
+        sendfile_max_chunk 2m;
+        directio           4m;
+        output_buffers     4 512k;
+
+        add_header Cache-Control "public, max-age=3600, must-revalidate";
+        add_header Accept-Ranges bytes;
+        etag on;
     }
 
     location / {
