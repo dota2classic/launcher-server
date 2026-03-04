@@ -50,7 +50,11 @@ services:
 
 volumes:
   certbot_certs:
+    name: launcher_certbot_certs
+    external: true
   certbot_www:
+    name: launcher_certbot_www
+    external: true
 
 networks:
   internal:
