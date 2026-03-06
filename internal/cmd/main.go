@@ -20,21 +20,42 @@ func main() {
 		log.Fatal("usage: launcher-host <files-path>  or set LAUNCHER_FILES_PATH")
 	}
 
-	m, err := manifest.CreateManifest(filesPath)
+	registryPath := filepath.Join(filesPath, manifest.RegistryFile)
+	rf, err := os.Open(registryPath)
 	if err != nil {
-		log.Fatalf("Failed to create manifest: %v", err)
+		log.Fatalf("Failed to open %s: %v", registryPath, err)
+	}
+	var registry manifest.Registry
+	if err := json.NewDecoder(rf).Decode(&registry); err != nil {
+		rf.Close()
+		log.Fatalf("Failed to parse %s: %v", registryPath, err)
+	}
+	rf.Close()
+
+	if len(registry.Packages) == 0 {
+		log.Fatal("registry.json contains no packages")
 	}
 
-	outPath := filepath.Join(filesPath, manifest.ManifestFile)
-	f, err := os.Create(outPath)
-	if err != nil {
-		log.Fatalf("Failed to create %s: %v", outPath, err)
-	}
-	defer f.Close()
+	for _, pkg := range registry.Packages {
+		pkgPath := filepath.Join(filesPath, pkg.Folder)
 
-	if err := json.NewEncoder(f).Encode(m); err != nil {
-		log.Fatalf("Failed to write manifest: %v", err)
-	}
+		m, err := manifest.CreateManifest(pkgPath)
+		if err != nil {
+			log.Fatalf("[%s] Failed to create manifest: %v", pkg.ID, err)
+		}
 
-	log.Printf("Written manifest with %d files to %s", len(m.Files), outPath)
+		outPath := filepath.Join(pkgPath, manifest.ManifestFile)
+		f, err := os.Create(outPath)
+		if err != nil {
+			log.Fatalf("[%s] Failed to create %s: %v", pkg.ID, outPath, err)
+		}
+
+		if err := json.NewEncoder(f).Encode(m); err != nil {
+			f.Close()
+			log.Fatalf("[%s] Failed to write manifest: %v", pkg.ID, err)
+		}
+		f.Close()
+
+		log.Printf("[%s] Written manifest with %d files to %s", pkg.ID, len(m.Files), outPath)
+	}
 }
